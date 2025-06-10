@@ -1,105 +1,83 @@
 import requests
 from bs4 import BeautifulSoup
-import time
 import json
 import logging
+import time
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 BASE_URL = "https://www.photos18.com"
 START_PAGE = 1
-MAX_PAGES = 10  # 爬取前10页列表页，改成你想爬的页数
-OUTPUT_FILE = "all_image_links.json"
+MAX_PAGES = 5  # 你可以调大页数，测试时先用小一点的
+CACHE_FILE = "all_image_links.json"
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0 Safari/537.36"
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                  "(KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
 }
 
-def get_list_page_urls(page_num):
-    return f"{BASE_URL}/page/{page_num}"
-
-def fetch_article_links_from_list(page_num):
-    url = get_list_page_urls(page_num)
+def get_page_urls(page_num):
+    url = f"{BASE_URL}/page/{page_num}"
     logging.info(f"抓取列表页: {url}")
     try:
-        resp = requests.get(url, headers=HEADERS, timeout=10)
+        resp = requests.get(url, headers=headers, timeout=10)
         resp.raise_for_status()
     except Exception as e:
-        logging.error(f"请求列表页失败 {url}: {e}")
+        logging.error(f"请求列表页失败: {e}")
         return []
+    soup = BeautifulSoup(resp.text, "lxml")
 
-    soup = BeautifulSoup(resp.text, 'lxml')
-
-    # 列表页文章链接，通常在 article 标签内的 h2 a
-    articles = soup.select('article h2 a')
+    # 这里根据网站实际结构改选择器，列表页文章链接都在 <a href="xxx" class="title"> 里（示例）
     links = []
-    for a in articles:
-        href = a.get('href')
+    for a_tag in soup.select("h3 a"):  # 你用浏览器检查具体是哪儿，改这里的选择器
+        href = a_tag.get("href")
         if href and href.startswith(BASE_URL):
             links.append(href)
-        elif href:
+        elif href and href.startswith("/v/"):
             links.append(BASE_URL + href)
-    logging.info(f"列表页抓取到 {len(links)} 篇文章链接")
+    logging.info(f"找到 {len(links)} 篇文章链接")
     return links
 
-def fetch_images_from_article(article_url):
-    logging.info(f"抓取详情页图片: {article_url}")
+def get_images_from_post(post_url):
+    logging.info(f"抓取详情页: {post_url}")
     try:
-        resp = requests.get(article_url, headers=HEADERS, timeout=10)
+        resp = requests.get(post_url, headers=headers, timeout=10)
         resp.raise_for_status()
     except Exception as e:
-        logging.error(f"请求详情页失败 {article_url}: {e}")
+        logging.error(f"请求详情页失败: {e}")
         return []
+    soup = BeautifulSoup(resp.text, "lxml")
 
-    soup = BeautifulSoup(resp.text, 'lxml')
-
-    # 重点：找 gallery 容器里的大图链接
-    gallery = soup.select_one('#gallery-1')
-    if not gallery:
-        logging.warning(f"{article_url} 没找到 gallery-1 容器，尝试其他方法")
-
-        # 备选：抓取文章正文所有 <img> 标签
-        imgs = soup.select('article img')
-        img_urls = []
+    # 这里的图片一般在 <div id="gallery-1"> 中的 <a href="图片地址">，也可能是 <img src="图片地址">
+    images = []
+    gallery_div = soup.find("div", id="gallery-1")
+    if gallery_div:
+        for a in gallery_div.find_all("a"):
+            href = a.get("href")
+            if href and href.lower().endswith((".jpg", ".jpeg", ".png")):
+                images.append(href)
+    else:
+        # 如果没有 gallery-1，尝试找所有 img 标签里的图片
+        imgs = soup.find_all("img")
         for img in imgs:
-            src = img.get('data-src') or img.get('src')
-            if src and src.startswith('http'):
-                img_urls.append(src)
-        return img_urls
+            src = img.get("src") or img.get("data-src")
+            if src and src.lower().endswith((".jpg", ".jpeg", ".png")):
+                if src.startswith("/"):
+                    src = BASE_URL + src
+                images.append(src)
+    logging.info(f"详情页抓取到 {len(images)} 张图片")
+    return images
 
-    anchors = gallery.select('figure.gallery-item a')
-    img_urls = []
-    for a in anchors:
-        href = a.get('href')
-        if href and href.startswith('http'):
-            img_urls.append(href)
-    logging.info(f"详情页抓取到 {len(img_urls)} 张图片")
-    return img_urls
-
-def main():
-    all_images = []
-
-    for page in range(START_PAGE, START_PAGE + MAX_PAGES):
-        article_links = fetch_article_links_from_list(page)
-        if not article_links:
-            logging.info("当前列表页无文章链接，提前结束爬取")
+def crawl_all_images():
+    all_images = set()
+    for page_num in range(START_PAGE, START_PAGE + MAX_PAGES):
+        post_urls = get_page_urls(page_num)
+        if not post_urls:
+            logging.info("列表页无文章链接，提前结束")
             break
 
-        for article_url in article_links:
-            imgs = fetch_images_from_article(article_url)
-            all_images.extend(imgs)
-            time.sleep(1)  # 礼貌等待，避免被封禁
-
-        time.sleep(2)  # 等待下一列表页请求
-
-    # 去重
-    all_images = list(set(all_images))
-    logging.info(f"全站爬取共计 {len(all_images)} 张图片")
-
-    with open(OUTPUT_FILE, 'w') as f:
-        json.dump(all_images, f, indent=2)
-
-    logging.info(f"图片链接写入文件: {OUTPUT_FILE}")
-
-if __name__ == '__main__':
-    main()
+        for post_url in po_
