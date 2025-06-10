@@ -6,7 +6,7 @@ import logging
 CACHE_FILE = 'img_cache.json'
 SITE_URL = 'https://www.photos18.com/'
 
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def fetch_image_links(limit=20):
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -24,20 +24,21 @@ def fetch_image_links(limit=20):
             if len(urls) >= limit:
                 break
 
-        logger.info(f"Fetched {len(urls)} image URLs from {SITE_URL}")
-        if urls:
-            logger.info(f"Sample URLs: {urls[:3]}")
+        logging.info(f"Fetched {len(urls)} image URLs")
         return urls
 
     except Exception as e:
-        logger.error(f"Error fetching images from {SITE_URL}: {e}")
+        logging.error(f"Error fetching images: {e}")
         return []
 
 def update_cache():
     links = fetch_image_links()
     if links:
-        with open(CACHE_FILE, 'w') as f:
-            json.dump(links, f, indent=2)
-        logger.info(f"Cache updated with {len(links)} URLs")
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(links, f, indent=2, ensure_ascii=False)
+        logging.info(f"Cache updated with {len(links)} images")
     else:
-        logger.warning("No links fetched; cache not updated")
+        logging.warning("No images fetched; cache not updated")
+
+if __name__ == "__main__":
+    update_cache()
