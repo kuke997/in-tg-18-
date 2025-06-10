@@ -2,58 +2,41 @@ name: Auto NSFW Push
 
 on:
   schedule:
-    # 每两小时执行一次
-    - cron: "0 */2 * * *"
-  workflow_dispatch:
+    - cron: "0 */2 * * *"  # 每2小时运行一次
+  workflow_dispatch:        # 支持手动触发
 
 jobs:
   push-nsfw:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repo
+      - name: Checkout Repository
         uses: actions/checkout@v3
 
-      - name: Set up Python 3.11
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.11
+          python-version: "3.11"
 
-      - name: Install dependencies
+      - name: Install Dependencies
         run: pip install -r requirements.txt
 
-      - name: Run NSFW Push Task
+      - name: Run NSFW Tasks
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
         run: |
           echo "== Running NSFW Push Task =="
-          echo "BOT_TOKEN length: ${BOT_TOKEN.length}"
-          echo "CHANNEL_USERNAME: $CHANNEL_USERNAME"
-          python - <<EOF
-import os
-import logging
-from telegram import Bot
-from telegram.error import InvalidToken
+          echo "BOT_TOKEN length: ${#BOT_TOKEN}"
+          echo "CHANNEL_USERNAME: ${CHANNEL_USERNAME}"
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+          python - << 'EOF'
+          import os
+          from crawler import update_cache
+          from main import send_to_channel
 
-TOKEN = os.getenv("BOT_TOKEN", "").strip()
-CHANNEL_ID = os.getenv("CHANNEL_USERNAME", "").strip()
+          print("[INFO] Starting crawler update...")
+          update_cache()
 
-logging.info(f"[DEBUG] BOT_TOKEN length: {len(TOKEN)}")
-logging.info(f"[DEBUG] CHANNEL_ID: {CHANNEL_ID}")
-
-if not TOKEN or len(TOKEN.split(":")) != 2:
-    logging.error("❌ Invalid BOT_TOKEN format.")
-    raise InvalidToken("Invalid BOT_TOKEN format.")
-
-bot = Bot(token=TOKEN)
-
-try:
-    # 测试发送一条消息，验证连接
-    bot.send_message(chat_id=CHANNEL_ID, text="✅ NSFW Push Task 测试消息")
-    logging.info("✅ 测试消息发送成功")
-except Exception as e:
-    logging.error(f"❌ 发送测试消息失败: {e}")
-    raise e
-EOF
+          print("[INFO] Sending to Telegram channel...")
+          send_to_channel()
+          EOF
