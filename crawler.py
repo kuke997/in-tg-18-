@@ -12,26 +12,28 @@ HEADERS = {
 }
 
 def get_category_urls():
-    url = BASE_URL + "/cat"
-    logging.info(f"抓取分类页: {url}")
+    url = BASE_URL
+    logging.info(f"抓取主页获取分类链接: {url}")
     try:
         r = requests.get(url, headers=HEADERS, timeout=10)
         r.raise_for_status()
     except Exception as e:
-        logging.error(f"请求分类页失败: {e}")
+        logging.error(f"请求主页失败: {e}")
         return []
 
     soup = BeautifulSoup(r.text, "lxml")
-    links = soup.select("div.cate-list a")  # 修改此处
+
+    # 主页菜单中的分类链接，示例改成导航栏a标签，具体用浏览器F12自己确认
+    links = soup.select("div.menu a")  # 你用浏览器检查替换这里的css选择器
+
     urls = []
     for a in links:
         href = a.get("href")
-        if href:
-            if href.startswith("http"):
-                urls.append(href)
-            else:
-                urls.append(BASE_URL + href)
-    logging.info(f"共找到 {len(urls)} 个分类链接")
+        if href and href.startswith("/cat"):
+            full_url = BASE_URL + href
+            urls.append(full_url)
+    urls = list(set(urls))  # 去重
+    logging.info(f"主页找到 {len(urls)} 个分类链接")
     return urls
 
 def get_max_page_from_category(category_url):
@@ -44,7 +46,7 @@ def get_max_page_from_category(category_url):
         return 1
 
     soup = BeautifulSoup(r.text, "lxml")
-    page_links = soup.select("div.pagination a")  # 修改此处
+    page_links = soup.select("div.pagination a")
     max_page = 1
     for a in page_links:
         try:
@@ -66,7 +68,7 @@ def fetch_post_urls_from_list_page(url):
         return []
 
     soup = BeautifulSoup(r.text, "lxml")
-    links = soup.select(".post-list .post-item a")  # 修改此处，适配列表页文章链接
+    links = soup.select(".post-list .post-item a")
     post_urls = []
     for link in links:
         href = link.get("href")
@@ -90,7 +92,7 @@ def fetch_images_from_post(post_url):
 
     soup = BeautifulSoup(r.text, "lxml")
     images = []
-    img_tags = soup.select("div.post-content img")  # 修改此处
+    img_tags = soup.select("div.post-content img")
     for img in img_tags:
         src = img.get("data-src") or img.get("src")
         if src and src.startswith("http"):
@@ -100,20 +102,23 @@ def fetch_images_from_post(post_url):
 def crawl_all_images():
     all_images = set()
     category_urls = get_category_urls()
+    if not category_urls:
+        logging.warning("没有抓取到任何分类链接，程序结束")
+        return []
     for category_url in category_urls:
         max_page = get_max_page_from_category(category_url)
         for page_num in range(1, max_page + 1):
             if page_num == 1:
                 url = category_url
             else:
-                url = f"{category_url}?page={page_num}"  # 修改分页格式
+                url = f"{category_url}?page={page_num}"
             post_urls = fetch_post_urls_from_list_page(url)
             if not post_urls:
                 break
             for post_url in post_urls:
                 imgs = fetch_images_from_post(post_url)
                 all_images.update(imgs)
-                time.sleep(1)  # 防封
+                time.sleep(1)
     return list(all_images)
 
 def update_cache():
