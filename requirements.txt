@@ -1,6 +1,4 @@
 python-telegram-bot==13.15
-apscheduler
-beautifulsoup4
 requests
+beautifulsoup4
 lxml
-
