@@ -6,34 +6,32 @@ import random
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 
-# 预定义的用户代理列表 - 不需要安装fake-useragent
+# 预定义的用户代理列表
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0",
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
     "Mozilla/5.0 (iPhone; CPU iPhone OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (iPad; CPU OS 14_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Mobile/15E148 Safari/604.1",
-    "Mozilla/5.0 (Windows NT 10.0; Trident/7.0; rv:11.0) like Gecko",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36",
 ]
 
-def get_random_headers():
-    """生成随机的浏览器头信息 - 不依赖外部库"""
-    return {
+def get_random_headers(referer=None):
+    """生成随机的浏览器头信息"""
+    headers = {
         "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
-        "Accept-Encoding": "gzip, deflate, br",
         "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
         "Cache-Control": "max-age=0",
-        "TE": "Trailers",
     }
+    if referer:
+        headers["Referer"] = referer
+    return headers
 
 def download_images_from_website(url, save_dir="downloaded_images", max_retries=3):
     """
-    高级图片爬虫 - 无依赖版
+    高级图片爬虫 - 修复版
     
     参数:
     url (str): 目标网站URL
@@ -43,9 +41,6 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
     # 创建保存目录
     os.makedirs(save_dir, exist_ok=True)
     
-    # 创建会话
-    session = requests.Session()
-    
     try:
         print(f"正在访问: {url}")
         
@@ -53,8 +48,7 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
         for attempt in range(max_retries):
             try:
                 headers = get_random_headers()
-                headers["Referer"] = url
-                response = session.get(url, headers=headers, timeout=15)
+                response = requests.get(url, headers=headers, timeout=15)
                 response.raise_for_status()
                 print(f"状态码: {response.status_code}")
                 break  # 成功则退出重试循环
@@ -66,11 +60,28 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
                 else:
                     raise  # 最后一次尝试失败则抛出异常
         
+        # 检查内容类型
+        content_type = response.headers.get('Content-Type', '').lower()
+        if 'image' in content_type:
+            # 直接下载图片
+            print("检测到直接图片链接，直接下载")
+            image_url = url
+            filename = os.path.basename(urlparse(image_url).path
+            if not filename:
+                filename = "downloaded_image.jpg"
+            save_path = os.path.join(save_dir, filename)
+            
+            with open(save_path, 'wb') as f:
+                f.write(response.content)
+                
+            print(f"已保存: {save_path}")
+            return 1
+        
         # 检查robots.txt
         parsed_url = urlparse(url)
         robots_url = f"{parsed_url.scheme}://{parsed_url.netloc}/robots.txt"
         try:
-            robots_response = session.get(robots_url, headers=get_random_headers(), timeout=5)
+            robots_response = requests.get(robots_url, headers=get_random_headers(), timeout=5)
             if robots_response.status_code == 200:
                 print("警告: 网站存在robots.txt文件")
                 print("请检查爬取是否被允许:\n" + robots_response.text[:300] + "...")
@@ -89,7 +100,7 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
         
         # 1. 从img标签获取
         for img in img_tags:
-            for attr in ['src', 'data-src', 'data-original', 'data-srcset', 'data-image', 'srcset']:
+            for attr in ['src', 'data-src', 'data-original', 'data-srcset', 'data-image']:
                 img_url = img.get(attr)
                 if img_url:
                     # 处理srcset属性 (多个URL)
@@ -149,12 +160,11 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
                 time.sleep(delay)
                 
                 # 更新头信息
-                headers = get_random_headers()
-                headers["Referer"] = url
+                headers = get_random_headers(referer=url)
                 
                 # 下载图片
                 print(f"正在下载 ({i+1}/{len(valid_urls)}): {img_url}")
-                img_response = session.get(img_url, headers=headers, timeout=20, stream=True)
+                img_response = requests.get(img_url, headers=headers, timeout=20)
                 
                 # 检查状态码
                 if img_response.status_code != 200:
@@ -162,7 +172,7 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
                     continue
                 
                 # 检查内容类型
-                content_type = img_response.headers.get('Content-Type', '')
+                content_type = img_response.headers.get('Content-Type', '').lower()
                 if not content_type or 'image' not in content_type:
                     print(f"跳过非图片内容 (Content-Type: {content_type}): {img_url}")
                     continue
@@ -187,18 +197,8 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
                     else:
                         ext = 'jpg'  # 默认
                 
-                # 从URL获取文件名
-                filename = os.path.basename(urlparse(img_url).path)
-                if not filename or '.' not in filename:
-                    filename = f"image_{i+1}.{ext}"
-                else:
-                    # 清理文件名
-                    filename = re.sub(r'[^\w\.-]', '_', filename)
-                    # 确保有扩展名
-                    if '.' not in filename:
-                        filename += f".{ext}"
-                
-                # 完整保存路径
+                # 生成文件名
+                filename = f"image_{i+1}.{ext}"
                 save_path = os.path.join(save_dir, filename)
                 
                 # 避免覆盖
@@ -210,9 +210,7 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
                 
                 # 保存图片
                 with open(save_path, 'wb') as f:
-                    for chunk in img_response.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
+                    f.write(img_response.content)
                 
                 downloaded += 1
                 print(f"已保存: {save_path}")
@@ -230,34 +228,59 @@ def download_images_from_website(url, save_dir="downloaded_images", max_retries=
 
 # 使用示例
 if __name__ == "__main__":
-    print("高级图片爬虫 - 无依赖版")
+    print("高级图片爬虫 - 修复版")
     print("警告: 仅用于合法网站和技术研究目的")
     
-    # 使用对爬虫友好的图片网站
-    target_url = "https://picsum.photos/"  # 最简单的图片API
+    # 使用包含多个图片的测试页面
+    target_url = "https://www.pexels.com/search/nature/"
     
-    # 或者使用其他备选网站:
-    # target_url = "https://www.pexels.com/search/nature/"
-    # target_url = "https://unsplash.com/s/photos/nature"
+    # 或者使用维基百科的图片页面
+    # target_url = "https://en.wikipedia.org/wiki/Nature"
     
-    # 如果使用需要JavaScript的网站，可能需要Selenium解决方案
-    # target_url = "https://www.istockphoto.com/photos/nature"
+    # 或者使用直接图片链接测试
+    # target_url = "https://picsum.photos/2000/1000"
     
-    # 设置更友好的目标网站
-    friendly_url = "https://picsum.photos/2000/1000"  # 直接获取大尺寸图片
-    
-    print(f"使用测试网站: {friendly_url}")
-    downloaded_count = download_images_from_website(friendly_url)
+    print(f"使用测试网站: {target_url}")
+    downloaded_count = download_images_from_website(target_url)
     
     if downloaded_count == 0:
-        print("\n如果仍然无法下载图片，可能原因:")
-        print("1. 网站有强大的反爬机制")
-        print("2. 图片是动态加载的（需要Selenium）")
-        print("3. 需要处理JavaScript渲染的内容")
-        print("4. IP地址可能被暂时封锁")
+        print("\n如果仍然无法下载图片，请尝试:")
+        print("1. 检查网络连接和代理设置")
+        print("2. 尝试不同的目标网站")
+        print("3. 查看网站是否使用JavaScript加载图片")
+        print("4. 检查防火墙或安全软件设置")
         
-        print("\n解决方案建议:")
-        print("1. 使用Selenium模拟浏览器: pip install selenium webdriver-manager")
-        print("2. 使用代理服务器")
-        print("3. 增加延迟时间和随机化请求模式")
-        print("4. 尝试不同的目标网站")
+        # 提供备用方案
+        print("\n备用方案：使用简单的图片下载函数")
+        simple_image_downloader()
+    else:
+        print("\n爬虫成功运行！")
+
+def simple_image_downloader():
+    """简单的图片下载器 - 直接下载测试图片"""
+    save_dir = "downloaded_images"
+    os.makedirs(save_dir, exist_ok=True)
+    
+    # 测试图片URL
+    test_images = [
+        "https://picsum.photos/2000/1000",
+        "https://picsum.photos/2000/1000?image=1",
+        "https://picsum.photos/2000/1000?image=2"
+    ]
+    
+    print("\n使用简单图片下载器下载测试图片...")
+    
+    for i, img_url in enumerate(test_images):
+        try:
+            response = requests.get(img_url, timeout=10)
+            if response.status_code == 200:
+                filename = os.path.join(save_dir, f"test_image_{i+1}.jpg")
+                with open(filename, 'wb') as f:
+                    f.write(response.content)
+                print(f"已保存测试图片: {filename}")
+            else:
+                print(f"下载失败，状态码 {response.status_code}: {img_url}")
+        except Exception as e:
+            print(f"下载测试图片失败: {str(e)}")
+    
+    print("简单图片下载完成")
