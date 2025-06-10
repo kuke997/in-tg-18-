@@ -1,41 +1,53 @@
-import os
+import requests
+from bs4 import BeautifulSoup
 import json
 import logging
-from telegram import Bot
-from telegram.error import TelegramError, InvalidToken
+import os
+
+CACHE_FILE = 'img_cache.json'
+SITE_URL = 'https://www.photos18.com/'
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-TOKEN = os.getenv('BOT_TOKEN', '').strip()
-CHANNEL_ID = os.getenv('CHANNEL_USERNAME', '').strip()
+def fetch_image_links(limit=20):
+    headers = {"User-Agent": "Mozilla/5.0"}
+    try:
+        res = requests.get(SITE_URL, headers=headers, timeout=10)
+        res.raise_for_status()
+        soup = BeautifulSoup(res.text, 'lxml')
 
-logging.info(f"BOT_TOKEN length: {len(TOKEN)}")
-logging.info(f"CHANNEL_ID: {CHANNEL_ID}")
+        # 先按 card-image 结构抓
+        img_tags = soup.select('div.card-image img')
+        urls = [img.get('data-src') or img.get('src') for img in img_tags]
+        urls = [u for u in urls if u and u.startswith('http')][:limit]
 
-if not TOKEN or len(TOKEN.split(':')) != 2:
-    logging.error("Invalid BOT_TOKEN format!")
-    raise InvalidToken("Invalid BOT_TOKEN format")
+        # fallback：如果没抓到，改用全局 <img>
+        if not urls:
+            logging.warning("Primary selector 没抓到图片，尝试全局 <img> fallback")
+            all_tags = soup.find_all('img')
+            for img in all_tags:
+                src = img.get('data-src') or img.get('src')
+                if src and src.startswith('http'):
+                    urls.append(src)
+                if len(urls) >= limit:
+                    break
 
-bot = Bot(token=TOKEN)
+        logging.info(f"Fetched {len(urls)} image URLs")
+        return urls
 
-CACHE_FILE = 'img_cache.json'
+    except Exception as e:
+        logging.error(f"Error fetching images: {e}")
+        return []
 
-def send_to_channel():
-    if not os.path.exists(CACHE_FILE):
-        logging.error(f"Cache file {CACHE_FILE} does not exist!")
-        return
-
-    with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-        img_urls = json.load(f)
-
-    logging.info(f"Sending {len(img_urls)} images to channel {CHANNEL_ID}")
-
-    for idx, url in enumerate(img_urls, 1):
-        try:
-            bot.send_photo(chat_id=CHANNEL_ID, photo=url, caption=f"自动推送图片 {idx}")
-            logging.info(f"Sent image {idx} successfully")
-        except TelegramError as e:
-            logging.error(f"Failed to send image {idx}: {e}")
+def update_cache():
+    links = fetch_image_links()
+    # 总是写入缓存文件，避免旧数据或空文件导致 JSONDecodeError
+    with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+        json.dump(links, f, indent=2, ensure_ascii=False)
+    if links:
+        logging.info(f"Cache updated with {len(links)} images")
+    else:
+        logging.warning("Cache overwritten with empty list (no images)")
 
 if __name__ == "__main__":
-    send_to_channel()
+    update_cache()
