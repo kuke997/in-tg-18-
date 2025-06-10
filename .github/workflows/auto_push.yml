@@ -31,12 +31,15 @@ jobs:
 
           python - << 'EOF'
           import os
+          import logging
           from crawler import update_cache
           from main import send_to_channel
+
+          logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
           print("[INFO] Starting crawler update...")
           update_cache()
 
-          print("[INFO] Sending to Telegram channel...")
+          print("[INFO] Sending images to Telegram channel...")
           send_to_channel()
           EOF
