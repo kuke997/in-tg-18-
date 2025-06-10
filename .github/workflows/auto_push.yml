@@ -2,29 +2,41 @@ name: Auto NSFW Push
 
 on:
   schedule:
-    - cron: "0 */2 * * *"
-  workflow_dispatch:
+    - cron: "0 */2 * * *"  # 每2小时运行一次
+  workflow_dispatch:        # 支持手动触发
 
 jobs:
   push-nsfw:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.11"
-      - name: Install deps
+
+      - name: Install Dependencies
         run: pip install -r requirements.txt
-      - name: Run NSFW tasks
+
+      - name: Run NSFW Tasks
         env:
           BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
           CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
         run: |
+          echo "== Running NSFW Push Task =="
+          echo "BOT_TOKEN length: ${#BOT_TOKEN}"
+          echo "CHANNEL_USERNAME: ${CHANNEL_USERNAME}"
+
           python - << 'EOF'
+          import os
           from crawler import update_cache
           from main import send_to_channel
+
+          print("[INFO] Starting crawler update...")
           update_cache()
+
+          print("[INFO] Sending to Telegram channel...")
           send_to_channel()
           EOF
-
