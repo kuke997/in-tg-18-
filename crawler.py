@@ -1,104 +1,66 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import time
+import asyncio
 import json
 import os
-import logging
+from playwright.async_api import async_playwright
 
 BASE_URL = "https://www.photos18.com"
 CACHE_FILE = "img_cache.json"
 
-logging.basicConfig(level=logging.INFO)
+async def get_category_links(page):
+    await page.goto(f"{BASE_URL}", timeout=60000)
+    await page.wait_for_selector("a.nav-link[href*='/cat/']", timeout=10000)
+    links = await page.eval_on_selector_all("a.nav-link[href*='/cat/']", "els => els.map(el => el.href)")
+    return list(set(links))
 
-chrome_options = Options()
-chrome_options.add_argument("--headless")
-chrome_options.add_argument("--disable-gpu")
-chrome_options.add_argument("--no-sandbox")
-chrome_options.add_argument("--disable-dev-shm-usage")
-
-driver = webdriver.Chrome(options=chrome_options)
-
-def get_all_category_urls():
-    driver.get(BASE_URL)
-    time.sleep(2)
-    soup = BeautifulSoup(driver.page_source, "lxml")
-    links = soup.select("ul.nav > li > a")
-    category_urls = [urljoin(BASE_URL, a["href"]) for a in links if "/cat/" in a["href"]]
-    logging.info(f"发现 {len(category_urls)} 个分类")
-    return category_urls
-
-def get_all_post_urls_from_category(category_url, max_pages=5):
-    post_urls = []
-    for page in range(1, max_pages + 1):
-        page_url = f"{category_url}/page/{page}" if page > 1 else category_url
-        logging.info(f"浏览分类分页: {page_url}")
+async def get_all_post_links(page, category_url):
+    post_links = []
+    page_num = 1
+    while True:
+        url = f"{category_url}/page/{page_num}" if page_num > 1 else category_url
         try:
-            driver.get(page_url)
-            time.sleep(2)
-            soup = BeautifulSoup(driver.page_source, "lxml")
-            posts = soup.select("div.item > a")
-            if not posts:
+            await page.goto(url, timeout=60000)
+            items = await page.query_selector_all("div.item > a")
+            if not items:
                 break
-            for post in posts:
-                href = post.get("href")
-                if href:
-                    full_url = urljoin(BASE_URL, href)
-                    post_urls.append(full_url)
-        except Exception as e:
-            logging.error(f"分页失败: {e}")
-            continue
-    return post_urls
+            for item in items:
+                href = await item.get_attribute("href")
+                if href and href.startswith("/v/"):
+                    full_url = BASE_URL + href
+                    post_links.append(full_url)
+            page_num += 1
+        except:
+            break
+    return post_links
 
-def extract_images_from_post(post_url):
-    logging.info(f"抓取详情页: {post_url}")
-    try:
-        driver.get(post_url)
-        time.sleep(3)
-        thumbnails = driver.find_elements(By.CSS_SELECTOR, ".gallery img")
-        image_urls = []
+async def extract_images_from_post(page, post_url):
+    await page.goto(post_url, timeout=60000)
+    await page.wait_for_timeout(2000)  # 等待 js 加载
+    img_urls = await page.eval_on_selector_all("a[data-fancybox='gallery']", "els => els.map(el => el.href)")
+    return [img for img in img_urls if img.endswith(('.jpg', '.jpeg', '.png', '.webp'))]
 
-        for thumb in thumbnails:
-            try:
-                thumb.click()
-                time.sleep(1)
-                img = driver.find_element(By.CSS_SELECTOR, ".fancybox-image")
-                img_url = img.get_attribute("src")
-                if img_url:
-                    image_urls.append(img_url)
-                driver.find_element(By.CSS_SELECTOR, "button.fancybox-button--close").click()
-                time.sleep(1)
-            except Exception as e:
-                logging.warning(f"图片弹窗失败: {e}")
-                continue
-
-        return image_urls
-    except Exception as e:
-        logging.error(f"详情页抓取失败: {e}")
-        return []
-
-def crawl_full_site():
+async def main():
     all_images = set()
-    categories = get_all_category_urls()
-    for cat_url in categories:
-        posts = get_all_post_urls_from_category(cat_url, max_pages=3)
-        for post_url in posts:
-            imgs = extract_images_from_post(post_url)
-            all_images.update(imgs)
-    return list(all_images)
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        categories = await get_category_links(page)
+        print(f"共发现 {len(categories)} 个分类")
 
-def update_cache():
-    imgs = crawl_full_site()
-    if imgs:
-        with open(CACHE_FILE, "w") as f:
-            json.dump(imgs, f, indent=2)
-        logging.info(f"抓取完成，保存 {len(imgs)} 张图片")
-    else:
-        logging.warning("没有抓取到任何图片")
+        for cat in categories:
+            print(f"抓取分类: {cat}")
+            posts = await get_all_post_links(page, cat)
+            print(f"  - 共找到 {len(posts)} 个帖子")
+            for post in posts:
+                imgs = await extract_images_from_post(page, post)
+                print(f"    - 帖子: {post} → {len(imgs)} 张图片")
+                all_images.update(imgs)
+        await browser.close()
+
+    # 保存缓存
+    all_images = list(all_images)
+    with open(CACHE_FILE, "w") as f:
+        json.dump(all_images, f, indent=2)
+    print(f"\n✅ 共抓取到 {len(all_images)} 张图片，已保存到 {CACHE_FILE}")
 
 if __name__ == "__main__":
-    update_cache()
-    driver.quit()
+    asyncio.run(main())
