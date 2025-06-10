@@ -2,3 +2,6 @@ python-telegram-bot==13.15
 requests
 beautifulsoup4
 lxml
+pip install playwright
+playwright install
+
