@@ -1,84 +1,37 @@
-import os
-import random
-import json
 import logging
-from telegram import Update, Bot
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+import os
+from telegram import Bot
 from telegram.error import TelegramError
-from apscheduler.schedulers.background import BackgroundScheduler
-from crawler import update_cache, CACHE_FILE
 
-# 环境变量 & 日志
-TOKEN = os.getenv("BOT_TOKEN")
-CHANNEL = os.getenv("CHANNEL_USERNAME")
+# 配置日志输出
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 
-logging.basicConfig(format='%(asctime)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Telegram 配置（使用环境变量或直接写入也可）
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "你的_BOT_TOKEN")
+CHANNEL_ID = os.getenv("TELEGRAM_CHANNEL_ID", "@你的频道ID")  # 注意带 @
 
-# 加载缓存
-def load_images():
-    try:
-        imgs = json.load(open(CACHE_FILE, 'r'))
-        logger.info("Loaded %d images from cache", len(imgs))
-        return imgs
-    except Exception as e:
-        logger.warning("Failed to load cache: %s", e)
-        return []
+bot = Bot(token=TOKEN)
 
-# /start
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text("🔥 DesiHotBabeX Bot 🔥\nSend /latest to get a hot pic!")
+def send_test_images():
+    # 模拟的图片链接
+    img_urls = [
+        "https://picsum.photos/300/200",
+        "https://picsum.photos/seed/picsum/300/200"
+    ]
 
-# /latest
-def latest(update: Update, context: CallbackContext):
-    imgs = load_images()
-    if not imgs:
-        update.message.reply_text("No images right now. Try later.")
-        return
-    pic = random.choice(imgs)
-    update.message.reply_photo(photo=pic, caption="🔥 Here's a hot Desi pic 🔥")
-
-# 关键词触发
-def keyword_reply(update: Update, context: CallbackContext):
-    text = update.message.text.lower()
-    if any(k in text for k in ['hot','desi','babe','nsfw']):
-        latest(update, context)
-
-# 定时推送
-def send_to_channel():
-    imgs = load_images()
-    if not imgs:
-        logger.warning("No images to send on schedule")
-        return
-    pic = random.choice(imgs)
-    bot = Bot(TOKEN)
-    try:
-        bot.send_photo(chat_id=CHANNEL, photo=pic, caption="🔥 Auto NSFW 🔥")
-        logger.info("Sent scheduled photo: %s", pic)
-    except TelegramError as e:
-        logger.error("Failed scheduled send: %s", e)
-
-# 主入口
-def main():
-    # 首次更新缓存
-    update_cache()
-
-    # 启动 Bot
-    updater = Updater(TOKEN, use_context=True)
-    dp = updater.dispatcher
-    dp.add_handler(CommandHandler("start", start))
-    dp.add_handler(CommandHandler("latest", latest))
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, keyword_reply))
-
-    # 定时任务
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(update_cache, 'interval', hours=2, id='cache_upd')
-    scheduler.add_job(send_to_channel, 'interval', hours=2, id='auto_post')
-    scheduler.start()
-    logger.info("Scheduler started: %s", scheduler.get_jobs())
-
-    updater.start_polling()
-    updater.idle()
+    logging.info(f"[测试模式] 模拟生成图片链接 {len(img_urls)} 条")
+    for i, url in enumerate(img_urls):
+        logging.info(f"[测试模式] 第 {i+1} 条图片链接: {url}")
+        try:
+            bot.send_photo(chat_id=CHANNEL_ID, photo=url, caption=f"测试图片 {i+1}")
+            logging.info(f"✅ 成功发送第 {i+1} 张图片")
+        except TelegramError as e:
+            logging.error(f"❌ 发送图片失败: {e}")
 
 if __name__ == "__main__":
-    main()
+    logging.info("📤 Telegram Bot 测试开始")
+    send_test_images()
+    logging.info("📤 Telegram Bot 测试结束")
