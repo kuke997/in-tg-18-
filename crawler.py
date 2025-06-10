@@ -22,8 +22,7 @@ def get_category_urls():
         return []
 
     soup = BeautifulSoup(r.text, "lxml")
-    # 分类链接位于 div.cat_list > ul > li > a
-    links = soup.select("div.cat_list ul li a")
+    links = soup.select("div.cate-list a")  # 修改此处
     urls = []
     for a in links:
         href = a.get("href")
@@ -35,6 +34,28 @@ def get_category_urls():
     logging.info(f"共找到 {len(urls)} 个分类链接")
     return urls
 
+def get_max_page_from_category(category_url):
+    logging.info(f"获取分页信息: {category_url}")
+    try:
+        r = requests.get(category_url, headers=HEADERS, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        logging.error(f"请求分类页失败: {e}")
+        return 1
+
+    soup = BeautifulSoup(r.text, "lxml")
+    page_links = soup.select("div.pagination a")  # 修改此处
+    max_page = 1
+    for a in page_links:
+        try:
+            page_num = int(a.text.strip())
+            if page_num > max_page:
+                max_page = page_num
+        except:
+            pass
+    logging.info(f"最大分页数: {max_page}")
+    return max_page
+
 def fetch_post_urls_from_list_page(url):
     logging.info(f"抓取列表页: {url}")
     try:
@@ -45,8 +66,7 @@ def fetch_post_urls_from_list_page(url):
         return []
 
     soup = BeautifulSoup(r.text, "lxml")
-    # 文章链接位于 div.item > a
-    links = soup.select("div.item a")
+    links = soup.select(".post-list .post-item a")  # 修改此处，适配列表页文章链接
     post_urls = []
     for link in links:
         href = link.get("href")
@@ -70,39 +90,12 @@ def fetch_images_from_post(post_url):
 
     soup = BeautifulSoup(r.text, "lxml")
     images = []
-    # 详情页图片在 div.gallery img，img.src 或 img.data-src
-    img_tags = soup.select("div.gallery img")
+    img_tags = soup.select("div.post-content img")  # 修改此处
     for img in img_tags:
         src = img.get("data-src") or img.get("src")
         if src and src.startswith("http"):
             images.append(src)
     return images
-
-def get_max_page_from_category(category_url):
-    """
-    获取分类页最大分页数，方便遍历所有分页
-    """
-    logging.info(f"获取分页信息: {category_url}")
-    try:
-        r = requests.get(category_url, headers=HEADERS, timeout=10)
-        r.raise_for_status()
-    except Exception as e:
-        logging.error(f"请求分类页失败: {e}")
-        return 1
-
-    soup = BeautifulSoup(r.text, "lxml")
-    # 分页按钮链接在 div.page a，找最大数字
-    page_links = soup.select("div.page a")
-    max_page = 1
-    for a in page_links:
-        try:
-            page_num = int(a.text.strip())
-            if page_num > max_page:
-                max_page = page_num
-        except:
-            pass
-    logging.info(f"最大分页数: {max_page}")
-    return max_page
 
 def crawl_all_images():
     all_images = set()
@@ -113,21 +106,21 @@ def crawl_all_images():
             if page_num == 1:
                 url = category_url
             else:
-                url = f"{category_url}/page/{page_num}"
+                url = f"{category_url}?page={page_num}"  # 修改分页格式
             post_urls = fetch_post_urls_from_list_page(url)
             if not post_urls:
                 break
             for post_url in post_urls:
                 imgs = fetch_images_from_post(post_url)
                 all_images.update(imgs)
-                time.sleep(1)  # 适当等待，防止封禁
+                time.sleep(1)  # 防封
     return list(all_images)
 
 def update_cache():
     imgs = crawl_all_images()
     if imgs:
-        with open(CACHE_FILE, "w") as f:
-            json.dump(imgs, f, indent=2)
+        with open(CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(imgs, f, indent=2, ensure_ascii=False)
         logging.info(f"共抓取到 {len(imgs)} 张图片，写入缓存")
     else:
         logging.warning("未抓取到任何图片，缓存未更新")
