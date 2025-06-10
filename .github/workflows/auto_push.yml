@@ -2,44 +2,37 @@ name: Auto NSFW Push
 
 on:
   schedule:
-    - cron: "0 */2 * * *"  # 每2小时运行一次
-  workflow_dispatch:        # 支持手动触发
+    - cron: "0 */2 * * *"  # 每2小时执行一次
+  workflow_dispatch:
 
 jobs:
   push-nsfw:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: "3.11"
+    - name: Setup Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
 
-      - name: Install Dependencies
-        run: pip install -r requirements.txt
+    - name: Install dependencies
+      run: pip install -r requirements.txt
 
-      - name: Run NSFW Tasks
-        env:
-          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-          CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
-        run: |
-          echo "== Running NSFW Push Task =="
-          echo "BOT_TOKEN length: ${#BOT_TOKEN}"
-          echo "CHANNEL_USERNAME: ${CHANNEL_USERNAME}"
+    - name: Debug environment variables
+      run: |
+        echo "BOT_TOKEN length: ${#BOT_TOKEN}"
+        echo "CHANNEL_USERNAME: $CHANNEL_USERNAME"
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
 
-          python - << 'EOF'
-          import os
-          import logging
-          from crawler import update_cache
-          from main import send_to_channel
-
-          logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-          print("[INFO] Starting crawler update...")
-          update_cache()
-
-          print("[INFO] Sending images to Telegram channel...")
-          send_to_channel()
-          EOF
+    - name: Run crawler and push images
+      env:
+        BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        CHANNEL_USERNAME: ${{ secrets.CHANNEL_USERNAME }}
+      run: |
+        python crawler.py
+        python main.py
